@@ -32,8 +32,27 @@
         const { useState, useMemo, useEffect } = React;
 
         // --- Firebase Configuration ---
-        const firebaseConfig = JSON.parse(__firebase_config);
-        firebase.initializeApp(firebaseConfig);
+        // NOTE: When deploying to Vercel, __firebase_config is not defined.
+        // You should replace the empty object below with your actual Firebase config from the Firebase Console.
+        let firebaseConfig = {};
+        
+        try {
+            if (typeof __firebase_config !== 'undefined') {
+                firebaseConfig = JSON.parse(__firebase_config);
+            }
+        } catch (e) {
+            console.error("Config parse error", e);
+        }
+
+        // Initialize Firebase only if config is present
+        if (firebaseConfig.apiKey) {
+            if (!firebase.apps.length) {
+                firebase.initializeApp(firebaseConfig);
+            }
+        } else {
+            console.warn("Firebase Config is missing. Please add your credentials to the firebaseConfig object.");
+        }
+
         const db = firebase.firestore();
         const auth = firebase.auth();
         const appId = typeof __app_id !== 'undefined' ? __app_id : 'asiqur-blog';
@@ -66,6 +85,7 @@
             // Initialize Auth (Rule 3)
             useEffect(() => {
                 const initAuth = async () => {
+                    if (!firebaseConfig.apiKey) return;
                     try {
                         if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
                             await auth.signInWithCustomToken(__initial_auth_token);
@@ -83,7 +103,10 @@
 
             // Real-time Data Sync (Cloud visibility for everyone)
             useEffect(() => {
-                if (!user) return;
+                if (!user || !firebaseConfig.apiKey) {
+                    if (!firebaseConfig.apiKey) setIsLoading(false);
+                    return;
+                }
                 
                 setIsLoading(true);
                 const unsubscribe = collectionRef.onSnapshot((snapshot) => {
@@ -144,6 +167,27 @@
                     }
                 }
             };
+
+            // Warning for missing config
+            if (!firebaseConfig.apiKey && !isLoading) {
+                return (
+                    <div className="min-h-screen flex items-center justify-center bg-slate-50 p-4">
+                        <div className="bg-white p-8 rounded-2xl shadow-xl max-w-md text-center">
+                            <Icon name="alert-triangle" size={48} className="text-amber-500 mb-4" />
+                            <h1 className="text-xl font-bold mb-2">Firebase Configuration Missing</h1>
+                            <p className="text-slate-600 mb-6">To use this app on Vercel, you must add your own Firebase config to the code.</p>
+                            <div className="text-left bg-slate-900 text-slate-300 p-4 rounded-lg text-xs overflow-auto font-mono">
+                                {`const firebaseConfig = {
+  apiKey: "...",
+  authDomain: "...",
+  projectId: "...",
+  ...
+};`}
+                            </div>
+                        </div>
+                    </div>
+                );
+            }
 
             return (
                 <div className="min-h-screen pb-20">
