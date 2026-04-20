@@ -35,16 +35,15 @@
          * IMPORTANT FOR VERCEL DEPLOYMENT:
          * Paste your Firebase config from the Firebase Console below.
          */
-           const MANUAL_CONFIG = {
-               apiKey: "AIzaSyCtySdj26DJT5Tb1Bv7LChYVnfU5hFe3Yg",
-    authDomain: "prepforexam-7e365.firebaseapp.com",
-    projectId: "prepforexam-7e365",
-    storageBucket: "prepforexam-7e365.firebasestorage.app",
-    messagingSenderId: "741904591926",
-    appId: "1:741904591926:web:d7e799828b4d7500cbbc97",
-    measurementId: "G-51D15N6Q7D"
+        const MANUAL_CONFIG = {
+            apiKey: "AIzaSyCtySdj26DJT5Tb1Bv7LChYVnfU5hFe3Yg",
+  authDomain: "prepforexam-7e365.firebaseapp.com",
+  projectId: "prepforexam-7e365",
+  storageBucket: "prepforexam-7e365.firebasestorage.app",
+  messagingSenderId: "741904591926",
+  appId: "1:741904591926:web:d7e799828b4d7500cbbc97",
+ 
         };
-
 
         // --- Firebase Initialization Logic ---
         let db, auth, appId;
@@ -106,16 +105,26 @@
                         if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
                             await auth.signInWithCustomToken(__initial_auth_token);
                         } else if (!auth.currentUser) {
+                            // Explicitly attempt anonymous sign-in
                             await auth.signInAnonymously();
                         }
                     } catch (err) {
-                        console.error("Auth Error:", err);
-                        setLoadError("Authentication failed. Please check your Firebase settings.");
+                        console.error("Auth Error Detail:", err);
+                        let message = "Authentication failed.";
+                        if (err.code === 'auth/operation-not-allowed') {
+                            message = "Anonymous Auth is NOT enabled in your Firebase Console.";
+                        } else if (err.code === 'auth/invalid-api-key') {
+                            message = "The API Key in MANUAL_CONFIG is invalid.";
+                        }
+                        setLoadError(message);
                         setIsLoading(false);
                     }
                 };
                 initAuth();
-                const unsubscribe = auth.onAuthStateChanged((u) => setUser(u));
+                const unsubscribe = auth.onAuthStateChanged((u) => {
+                    setUser(u);
+                    if (u) setLoadError(null);
+                });
                 return () => unsubscribe();
             }, []);
 
@@ -124,7 +133,6 @@
                 if (!user || !isFirebaseReady) return;
                 
                 setIsLoading(true);
-                // Path following Rule 1 strictly
                 const collectionRef = db.collection('artifacts').doc(appId).collection('public').doc('data').collection('blogs');
                 
                 const unsubscribe = collectionRef.onSnapshot((snapshot) => {
@@ -243,12 +251,23 @@
                                 <p className="text-xs text-slate-300 mt-2">Checking authentication & data rules</p>
                             </div>
                         ) : loadError ? (
-                            <div className="max-w-md mx-auto text-center py-20">
-                                <div className="bg-red-50 text-red-600 p-6 rounded-2xl border border-red-100">
-                                    <Icon name="cloud-off" size={40} className="mb-4" />
-                                    <h2 className="text-lg font-bold mb-2">Sync Error</h2>
-                                    <p className="text-sm opacity-90 mb-4">{loadError}</p>
-                                    <button onClick={() => window.location.reload()} className="px-4 py-2 bg-red-600 text-white rounded-lg text-sm font-bold">Retry Connection</button>
+                            <div className="max-w-md mx-auto text-center py-20 fade-in">
+                                <div className="bg-red-50 text-red-600 p-8 rounded-3xl border border-red-100 shadow-sm">
+                                    <Icon name="shield-alert" size={48} className="mx-auto mb-4" />
+                                    <h2 className="text-xl font-bold mb-2">Authentication Error</h2>
+                                    <p className="text-sm opacity-90 mb-6 leading-relaxed">{loadError}</p>
+                                    
+                                    <div className="text-left bg-white p-4 rounded-xl text-xs text-slate-700 space-y-2 mb-6 border border-red-200">
+                                        <p className="font-bold text-red-700 underline">How to fix:</p>
+                                        <p>1. Go to <b>Firebase Console</b></p>
+                                        <p>2. Select <b>Authentication</b> &gt; <b>Sign-in method</b></p>
+                                        <p>3. Click <b>Add new provider</b></p>
+                                        <p>4. Select <b>Anonymous</b> and click <b>Enable</b></p>
+                                    </div>
+                                    
+                                    <button onClick={() => window.location.reload()} className="w-full py-3 bg-red-600 text-white rounded-xl font-bold hover:bg-red-700 transition-colors">
+                                        I've enabled it, Retry
+                                    </button>
                                 </div>
                             </div>
                         ) : (
