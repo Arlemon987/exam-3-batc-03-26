@@ -12,6 +12,8 @@
     <script src="https://cdn.tailwindcss.com"></script>
     <!-- Lucide Icons -->
     <script src="https://unpkg.com/lucide@latest"></script>
+    <!-- PDF Generation Library -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
     <!-- Firebase SDKs -->
     <script src="https://www.gstatic.com/firebasejs/11.6.1/firebase-app-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/11.6.1/firebase-auth-compat.js"></script>
@@ -26,7 +28,7 @@
         
         /* Rich Text Table Styling */
         .rich-content table { width: 100%; border-collapse: collapse; margin: 1rem 0; font-size: 0.875rem; }
-        .rich-content table border, .rich-content td, .rich-content th { border: 1px solid #e2e8f0; padding: 8px; }
+        .rich-content td, .rich-content th { border: 1px solid #e2e8f0; padding: 8px; }
         .rich-content th { background-color: #f8fafc; font-weight: 700; }
         .rich-content blockquote { border-left: 4px solid #6366f1; padding-left: 1rem; color: #475569; font-style: italic; }
         
@@ -35,6 +37,19 @@
             content: attr(data-placeholder);
             color: #94a3b8;
             cursor: text;
+        }
+
+        /* Selection styles */
+        .checkbox-container {
+            position: absolute;
+            top: 1rem;
+            right: 1rem;
+            z-index: 10;
+        }
+
+        /* PDF Layout Helper (Hidden from screen) */
+        #pdf-template {
+            display: none;
         }
     </style>
 </head>
@@ -95,6 +110,10 @@
             const [selectedSubject, setSelectedSubject] = useState('All');
             const [isAdminMode, setIsAdminMode] = useState(false);
             
+            // Selection logic
+            const [selectedPostIds, setSelectedPostIds] = useState([]);
+            const [isExporting, setIsExporting] = useState(false);
+            
             const [loginId, setLoginId] = useState('');
             const [loginPass, setLoginPass] = useState('');
             const [error, setError] = useState('');
@@ -105,7 +124,7 @@
             const [newPost, setNewPost] = useState({ 
                 subject: '', 
                 topic: '', 
-                content: '', // Stores HTML string
+                content: '', 
                 tableData: [] 
             });
             const [editingId, setEditingId] = useState(null);
@@ -164,6 +183,84 @@
                     setError('');
                 } else {
                     setError('Invalid Credentials');
+                }
+            };
+
+            const togglePostSelection = (id) => {
+                setSelectedPostIds(prev => 
+                    prev.includes(id) ? prev.filter(pId => pId !== id) : [...prev, id]
+                );
+            };
+
+            const handleDownloadSelected = async () => {
+                if (selectedPostIds.length === 0) return;
+                setIsExporting(true);
+
+                const postsToExport = blogs.filter(b => selectedPostIds.includes(b.id));
+                
+                // Create a temporary container for PDF generation
+                const element = document.createElement('div');
+                element.style.padding = '40px';
+                element.style.fontFamily = 'Inter, sans-serif';
+                element.innerHTML = `
+                    <div style="text-align: center; margin-bottom: 40px; border-bottom: 2px solid #6366f1; padding-bottom: 20px;">
+                        <h1 style="color: #1e293b; margin: 0; font-size: 28px;">Asiqur's Prep Material</h1>
+                        <p style="color: #6366f1; font-weight: bold; margin: 5px 0 0 0;">Exported Study Guides</p>
+                    </div>
+                `;
+
+                postsToExport.forEach((post, index) => {
+                    const postSection = document.createElement('div');
+                    postSection.style.marginBottom = '50px';
+                    postSection.style.pageBreakAfter = index === postsToExport.length - 1 ? 'auto' : 'always';
+                    
+                    postSection.innerHTML = `
+                        <div style="margin-bottom: 10px;">
+                            <span style="background: #e0e7ff; color: #4338ca; padding: 4px 8px; border-radius: 4px; font-size: 12px; font-weight: bold; text-transform: uppercase;">${post.subject}</span>
+                        </div>
+                        <h2 style="font-size: 24px; color: #0f172a; margin-top: 0; margin-bottom: 20px;">${post.topic}</h2>
+                        <div class="rich-content" style="color: #334155; line-height: 1.6; font-size: 14px;">
+                            ${post.content}
+                        </div>
+                    `;
+
+                    if (post.tableData && post.tableData.length > 0) {
+                        const tableHtml = `
+                            <div style="margin-top: 20px; border: 1px solid #e2e8f0; border-radius: 8px; overflow: hidden;">
+                                <table style="width: 100%; border-collapse: collapse; text-align: left; font-size: 12px;">
+                                    <tr style="background: #f8fafc; border-bottom: 1px solid #e2e8f0;">
+                                        <th style="padding: 10px; font-weight: bold;">Key</th>
+                                        <th style="padding: 10px; font-weight: bold;">Value</th>
+                                    </tr>
+                                    ${post.tableData.map(row => `
+                                        <tr style="border-bottom: 1px solid #f1f5f9;">
+                                            <td style="padding: 10px; font-weight: 500; color: #4f46e5; width: 30%;">${row.key}</td>
+                                            <td style="padding: 10px; color: #475569;">${row.value}</td>
+                                        </tr>
+                                    `).join('')}
+                                </table>
+                            </div>
+                        `;
+                        postSection.innerHTML += tableHtml;
+                    }
+
+                    element.appendChild(postSection);
+                });
+
+                const opt = {
+                    margin: 10,
+                    filename: `Asiqur_Prep_Guides_${new Date().toLocaleDateString().replace(/\//g, '-')}.pdf`,
+                    image: { type: 'jpeg', quality: 0.98 },
+                    html2canvas: { scale: 2, useCORS: true },
+                    jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' }
+                };
+
+                try {
+                    await html2pdf().set(opt).from(element).save();
+                } catch (err) {
+                    console.error("PDF Export failed", err);
+                } finally {
+                    setIsExporting(false);
                 }
             };
 
@@ -230,7 +327,6 @@
                 }
             };
 
-            // Utility to strip HTML for the "Read More" card preview
             const stripHtml = (html) => {
                 const doc = new DOMParser().parseFromString(html, 'text/html');
                 return doc.body.textContent || "";
@@ -246,7 +342,21 @@
                                 </div>
                                 <span className="text-xl font-bold text-slate-800 tracking-tight">Asiqur's<span className="text-indigo-600">Blog</span></span>
                             </div>
-                            <div>
+                            <div className="flex items-center gap-4">
+                                {selectedPostIds.length > 0 && view === 'home' && (
+                                    <button 
+                                        onClick={handleDownloadSelected}
+                                        disabled={isExporting}
+                                        className="bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold px-4 py-2 rounded-lg flex items-center gap-2 shadow-lg shadow-indigo-200 transition-all disabled:opacity-50"
+                                    >
+                                        {isExporting ? (
+                                            <div className="w-3 h-3 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
+                                        ) : (
+                                            <Icon name="download" size={14} />
+                                        )}
+                                        PDF Selected ({selectedPostIds.length})
+                                    </button>
+                                )}
                                 {isAdminMode ? (
                                     <button onClick={() => { setIsAdminMode(false); setView('home'); }} className="text-sm font-medium text-red-600 px-3 py-2 flex items-center gap-1">
                                         <Icon name="log-out" size={16} /> Exit Admin
@@ -272,7 +382,7 @@
                                     <div className="space-y-8 fade-in">
                                         <header className="text-center max-w-2xl mx-auto space-y-4">
                                             <h1 className="text-4xl font-extrabold text-slate-900 tracking-tight">Exam-3 Preps</h1>
-                                            <p className="text-slate-500 text-lg font-medium">Cloud Database Connected</p>
+                                            <p className="text-slate-500 text-lg font-medium">Select multiple posts to export as one study guide</p>
                                         </header>
                                         
                                         {blogs.length > 0 && (
@@ -287,16 +397,28 @@
 
                                         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
                                             {filteredBlogs.map(blog => (
-                                                <div key={blog.id} className="bg-white rounded-2xl border border-slate-200 overflow-hidden hover:shadow-xl transition-all flex flex-col h-full">
+                                                <div 
+                                                    key={blog.id} 
+                                                    className={`relative bg-white rounded-2xl border transition-all flex flex-col h-full group ${selectedPostIds.includes(blog.id) ? 'border-indigo-600 ring-2 ring-indigo-100' : 'border-slate-200 hover:shadow-xl'}`}
+                                                >
+                                                    <div className="checkbox-container">
+                                                        <input 
+                                                            type="checkbox" 
+                                                            checked={selectedPostIds.includes(blog.id)}
+                                                            onChange={() => togglePostSelection(blog.id)}
+                                                            className="w-5 h-5 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500 cursor-pointer"
+                                                        />
+                                                    </div>
+
                                                     <div className="p-6 flex-grow">
                                                         <span className="inline-block px-3 py-1 bg-indigo-50 text-indigo-700 text-xs font-bold rounded mb-4 uppercase tracking-wider">{blog.subject}</span>
-                                                        <h3 className="text-xl font-bold text-slate-800 mb-3 line-clamp-2">{blog.topic}</h3>
+                                                        <h3 className="text-xl font-bold text-slate-800 mb-3 line-clamp-2 pr-6">{blog.topic}</h3>
                                                         <p className="text-slate-600 text-sm leading-relaxed line-clamp-3">{stripHtml(blog.content)}</p>
                                                     </div>
                                                     <div className="px-6 py-4 bg-slate-50 border-t border-slate-100 flex items-center justify-between">
                                                         <span className="text-xs text-slate-400 flex items-center gap-1"><Icon name="calendar" size={14} /> {blog.date}</span>
-                                                        <button onClick={() => { setSelectedBlog(blog); setView('read'); }} className="text-indigo-600 text-sm font-bold flex items-center gap-1 hover:underline group">
-                                                            Read More <Icon name="chevron-right" size={16} className="group-hover:translate-x-1 transition-transform" />
+                                                        <button onClick={() => { setSelectedBlog(blog); setView('read'); }} className="text-indigo-600 text-sm font-bold flex items-center gap-1 hover:underline">
+                                                            Read More <Icon name="chevron-right" size={16} />
                                                         </button>
                                                     </div>
                                                 </div>
@@ -307,19 +429,29 @@
 
                                 {view === 'read' && selectedBlog && (
                                     <div className="max-w-3xl mx-auto fade-in">
-                                        <button onClick={() => setView('home')} className="flex items-center gap-2 text-slate-500 hover:text-indigo-600 mb-8 font-medium">
-                                            <Icon name="arrow-left" size={18} /> Back
-                                        </button>
+                                        <div className="flex justify-between items-center mb-8">
+                                            <button onClick={() => setView('home')} className="flex items-center gap-2 text-slate-500 hover:text-indigo-600 font-medium">
+                                                <Icon name="arrow-left" size={18} /> Back
+                                            </button>
+                                            <button 
+                                                onClick={() => {
+                                                    if (!selectedPostIds.includes(selectedBlog.id)) {
+                                                        setSelectedPostIds([...selectedPostIds, selectedBlog.id]);
+                                                    }
+                                                    setView('home');
+                                                }}
+                                                className="text-sm bg-white border border-slate-200 px-3 py-1 rounded-lg font-medium text-slate-600 hover:bg-indigo-50 hover:text-indigo-600 transition-colors"
+                                            >
+                                                {selectedPostIds.includes(selectedBlog.id) ? "Selected" : "Select for Export"}
+                                            </button>
+                                        </div>
                                         <article className="bg-white rounded-3xl border border-slate-200 p-8 md:p-12 shadow-sm">
                                             <span className="text-indigo-600 font-bold uppercase tracking-widest text-xs mb-4 block">{selectedBlog.subject}</span>
                                             <h1 className="text-3xl md:text-5xl font-black text-slate-900 mb-6 leading-tight">{selectedBlog.topic}</h1>
-                                            
-                                            {/* Rendered HTML content */}
                                             <div 
                                                 className="prose prose-slate max-w-none rich-content text-slate-700 text-lg leading-relaxed mb-8"
                                                 dangerouslySetInnerHTML={{ __html: selectedBlog.content }}
                                             />
-
                                             {selectedBlog.tableData && selectedBlog.tableData.length > 0 && (
                                                 <div className="mt-8 border rounded-xl overflow-hidden">
                                                     <table className="w-full text-left text-sm">
@@ -370,7 +502,6 @@
                                                 <form onSubmit={handleSavePost} className="space-y-4">
                                                     <input type="text" placeholder="Subject" className="w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-indigo-500 outline-none" value={newPost.subject} onChange={e => setNewPost({...newPost, subject: e.target.value})} required />
                                                     <input type="text" placeholder="Topic" className="w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-indigo-500 outline-none" value={newPost.topic} onChange={e => setNewPost({...newPost, topic: e.target.value})} required />
-                                                    
                                                     <div className="space-y-1">
                                                         <label className="text-xs font-bold text-slate-400 uppercase tracking-wide">Content (Supports pasting formatting/tables)</label>
                                                         <div 
@@ -381,7 +512,6 @@
                                                             onInput={handleEditorInput}
                                                         ></div>
                                                     </div>
-
                                                     <div className="flex gap-2 pt-2">
                                                         <button type="submit" className="flex-grow bg-indigo-600 text-white font-bold py-3 rounded-xl hover:bg-indigo-700 transition-all shadow-md">
                                                             {editingId ? "Update" : "Publish"}
