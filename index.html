@@ -12,7 +12,7 @@
     <script src="https://cdn.tailwindcss.com"></script>
     <!-- Lucide Icons -->
     <script src="https://unpkg.com/lucide@latest"></script>
-    <!-- Firebase SDKs -->
+    <!-- Firebase SDKs (Using Compat version for easier single-script integration) -->
     <script src="https://www.gstatic.com/firebasejs/11.6.1/firebase-app-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/11.6.1/firebase-auth-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore-compat.js"></script>
@@ -31,10 +31,11 @@
     <script type="text/babel">
         const { useState, useMemo, useEffect } = React;
 
-        // --- Firebase Configuration ---
-        // NOTE: When deploying to Vercel, __firebase_config is not defined.
-        // You should replace the empty object below with your actual Firebase config from the Firebase Console.
-       const firebaseConfig = {
+        /**
+         * IMPORTANT FOR VERCEL DEPLOYMENT:
+         * Paste your Firebase config from the Firebase Console below.
+         */
+        const firebaseConfig = {
     apiKey: "AIzaSyCtySdj26DJT5Tb1Bv7LChYVnfU5hFe3Yg",
     authDomain: "prepforexam-7e365.firebaseapp.com",
     projectId: "prepforexam-7e365",
@@ -43,30 +44,32 @@
     appId: "1:741904591926:web:d7e799828b4d7500cbbc97",
     measurementId: "G-51D15N6Q7D"
   };
-        
+
+
+        // --- Firebase Initialization Logic ---
+        let db, auth, appId;
+        let isFirebaseReady = false;
+
         try {
-            if (typeof __firebase_config !== 'undefined') {
-                firebaseConfig = JSON.parse(__firebase_config);
+            let config = {};
+            if (typeof __firebase_config !== 'undefined' && __firebase_config) {
+                config = JSON.parse(__firebase_config);
+            } else if (MANUAL_CONFIG.apiKey) {
+                config = MANUAL_CONFIG;
+            }
+
+            if (config.apiKey && typeof firebase !== 'undefined') {
+                if (!firebase.apps.length) {
+                    firebase.initializeApp(config);
+                }
+                db = firebase.firestore();
+                auth = firebase.auth();
+                appId = typeof __app_id !== 'undefined' ? __app_id : 'asiqur-blog';
+                isFirebaseReady = true;
             }
         } catch (e) {
-            console.error("Config parse error", e);
+            console.error("Critical Firebase Init Error:", e);
         }
-
-        // Initialize Firebase only if config is present
-        if (firebaseConfig.apiKey) {
-            if (!firebase.apps.length) {
-                firebase.initializeApp(firebaseConfig);
-            }
-        } else {
-            console.warn("Firebase Config is missing. Please add your credentials to the firebaseConfig object.");
-        }
-
-        const db = firebase.firestore();
-        const auth = firebase.auth();
-        const appId = typeof __app_id !== 'undefined' ? __app_id : 'asiqur-blog';
-
-        // Collection Path (Rule 1)
-        const collectionRef = db.collection('artifacts').doc(appId).collection('public').doc('data').collection('blogs');
 
         const Icon = ({ name, size = 20, className = "" }) => {
             useEffect(() => { if (window.lucide) window.lucide.createIcons(); }, [name]);
@@ -81,6 +84,7 @@
             const [blogs, setBlogs] = useState([]);
             const [user, setUser] = useState(null);
             const [isLoading, setIsLoading] = useState(true);
+            const [loadError, setLoadError] = useState(null);
             const [selectedBlog, setSelectedBlog] = useState(null);
             const [selectedSubject, setSelectedSubject] = useState('All');
             const [isAdminMode, setIsAdminMode] = useState(false);
@@ -90,18 +94,24 @@
             const [error, setError] = useState('');
             const [newPost, setNewPost] = useState({ subject: '', topic: '', content: '' });
 
-            // Initialize Auth (Rule 3)
+            // Initialize Auth
             useEffect(() => {
+                if (!isFirebaseReady) {
+                    setIsLoading(false);
+                    return;
+                }
+
                 const initAuth = async () => {
-                    if (!firebaseConfig.apiKey) return;
                     try {
                         if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
                             await auth.signInWithCustomToken(__initial_auth_token);
-                        } else {
+                        } else if (!auth.currentUser) {
                             await auth.signInAnonymously();
                         }
                     } catch (err) {
-                        console.error("Auth failed", err);
+                        console.error("Auth Error:", err);
+                        setLoadError("Authentication failed. Please check your Firebase settings.");
+                        setIsLoading(false);
                     }
                 };
                 initAuth();
@@ -109,22 +119,25 @@
                 return () => unsubscribe();
             }, []);
 
-            // Real-time Data Sync (Cloud visibility for everyone)
+            // Real-time Data Sync
             useEffect(() => {
-                if (!user || !firebaseConfig.apiKey) {
-                    if (!firebaseConfig.apiKey) setIsLoading(false);
-                    return;
-                }
+                if (!user || !isFirebaseReady) return;
                 
                 setIsLoading(true);
+                // Path following Rule 1 strictly
+                const collectionRef = db.collection('artifacts').doc(appId).collection('public').doc('data').collection('blogs');
+                
                 const unsubscribe = collectionRef.onSnapshot((snapshot) => {
                     const data = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-                    // Simple JS Sort (Rule 2)
-                    data.sort((a, b) => b.createdAt - a.createdAt);
+                    data.sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
                     setBlogs(data);
                     setIsLoading(false);
+                    setLoadError(null);
                 }, (err) => {
-                    console.error("Firestore error:", err);
+                    console.error("Firestore Error:", err);
+                    setLoadError(err.message.includes('permission') ? 
+                        "Permission Denied. Please enable 'Test Mode' in your Firestore Rules." : 
+                        "Failed to connect to database.");
                     setIsLoading(false);
                 });
 
@@ -147,8 +160,7 @@
 
             const handleCreatePost = async (e) => {
                 e.preventDefault();
-                if (!newPost.subject || !newPost.topic || !newPost.content) return;
-                if (!user) return;
+                if (!newPost.subject || !newPost.topic || !newPost.content || !isFirebaseReady || !user) return;
 
                 const postData = {
                     ...newPost,
@@ -158,17 +170,20 @@
                 };
 
                 try {
+                    const collectionRef = db.collection('artifacts').doc(appId).collection('public').doc('data').collection('blogs');
                     await collectionRef.add(postData);
                     setNewPost({ subject: '', topic: '', content: '' });
                     setView('admin');
                 } catch (err) {
                     console.error("Post failed", err);
+                    alert("Failed to publish: " + err.message);
                 }
             };
 
             const handleDeletePost = async (id) => {
-                if (confirm('Delete this prep guide?')) {
+                if (confirm('Delete this prep guide?') && isFirebaseReady) {
                     try {
+                        const collectionRef = db.collection('artifacts').doc(appId).collection('public').doc('data').collection('blogs');
                         await collectionRef.doc(id).delete();
                     } catch (err) {
                         console.error("Delete failed", err);
@@ -176,21 +191,20 @@
                 }
             };
 
-            // Warning for missing config
-            if (!firebaseConfig.apiKey && !isLoading) {
+            // Setup instruction view
+            if (!isFirebaseReady && !isLoading) {
                 return (
                     <div className="min-h-screen flex items-center justify-center bg-slate-50 p-4">
                         <div className="bg-white p-8 rounded-2xl shadow-xl max-w-md text-center">
-                            <Icon name="alert-triangle" size={48} className="text-amber-500 mb-4" />
-                            <h1 className="text-xl font-bold mb-2">Firebase Configuration Missing</h1>
-                            <p className="text-slate-600 mb-6">To use this app on Vercel, you must add your own Firebase config to the code.</p>
-                            <div className="text-left bg-slate-900 text-slate-300 p-4 rounded-lg text-xs overflow-auto font-mono">
-                                {`const firebaseConfig = {
-  apiKey: "...",
-  authDomain: "...",
-  projectId: "...",
-  ...
-};`}
+                            <div className="w-16 h-16 bg-amber-50 text-amber-500 rounded-full flex items-center justify-center mx-auto mb-4">
+                                <Icon name="alert-triangle" size={32} />
+                            </div>
+                            <h1 className="text-xl font-bold mb-2">Connect Firebase</h1>
+                            <p className="text-slate-600 mb-6">You need to add your credentials to the <code>MANUAL_CONFIG</code> object at the top of the file to use this on Vercel.</p>
+                            <div className="text-left bg-slate-900 text-indigo-300 p-4 rounded-lg text-xs overflow-auto font-mono">
+                                1. Go to Firebase Console<br/>
+                                2. Copy Project Config<br/>
+                                3. Paste into MANUAL_CONFIG
                             </div>
                         </div>
                     </div>
@@ -226,6 +240,16 @@
                             <div className="flex flex-col items-center justify-center py-20">
                                 <div className="w-12 h-12 border-4 border-indigo-600 border-t-transparent rounded-full animate-spin"></div>
                                 <p className="mt-4 text-slate-400 font-medium">Syncing with cloud...</p>
+                                <p className="text-xs text-slate-300 mt-2">Checking authentication & data rules</p>
+                            </div>
+                        ) : loadError ? (
+                            <div className="max-w-md mx-auto text-center py-20">
+                                <div className="bg-red-50 text-red-600 p-6 rounded-2xl border border-red-100">
+                                    <Icon name="cloud-off" size={40} className="mb-4" />
+                                    <h2 className="text-lg font-bold mb-2">Sync Error</h2>
+                                    <p className="text-sm opacity-90 mb-4">{loadError}</p>
+                                    <button onClick={() => window.location.reload()} className="px-4 py-2 bg-red-600 text-white rounded-lg text-sm font-bold">Retry Connection</button>
+                                </div>
                             </div>
                         ) : (
                             <>
@@ -233,7 +257,7 @@
                                     <div className="space-y-8 fade-in">
                                         <header className="text-center max-w-2xl mx-auto space-y-4">
                                             <h1 className="text-4xl font-extrabold text-slate-900 tracking-tight">Exam-3 Preps</h1>
-                                            <p className="text-slate-500 text-lg font-medium">Let-Set-Go</p>
+                                            <p className="text-slate-500 text-lg font-medium">Cloud Database Connected</p>
                                         </header>
                                         
                                         {blogs.length > 0 && (
@@ -264,8 +288,8 @@
                                             ))}
                                             {filteredBlogs.length === 0 && (
                                                 <div className="col-span-full py-20 text-center bg-white rounded-3xl border border-dashed border-slate-300">
-                                                    <Icon name="cloud-off" size={48} className="mx-auto text-slate-300 mb-4" />
-                                                    <p className="text-slate-500 font-medium text-lg">No posts published yet.</p>
+                                                    <Icon name="clipboard-list" size={48} className="mx-auto text-slate-300 mb-4" />
+                                                    <p className="text-slate-500 font-medium text-lg">No posts in the database yet.</p>
                                                 </div>
                                             )}
                                         </div>
@@ -308,20 +332,20 @@
                                     <div className="grid grid-cols-1 lg:grid-cols-3 gap-8 fade-in">
                                         <div className="lg:col-span-1">
                                             <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm sticky top-24">
-                                                <h3 className="text-lg font-bold mb-6">Publish Prep Guide</h3>
+                                                <h3 className="text-lg font-bold mb-6 text-indigo-600 flex items-center gap-2"><Icon name="plus-circle" size={20}/> Publish New</h3>
                                                 <form onSubmit={handleCreatePost} className="space-y-4">
                                                     <input type="text" placeholder="Subject (e.g. Physics)" className="w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-indigo-500 outline-none" value={newPost.subject} onChange={e => setNewPost({...newPost, subject: e.target.value})} required />
                                                     <input type="text" placeholder="Topic (e.g. Waves)" className="w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-indigo-500 outline-none" value={newPost.topic} onChange={e => setNewPost({...newPost, topic: e.target.value})} required />
                                                     <textarea placeholder="Content..." className="w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-indigo-500 outline-none" rows="8" value={newPost.content} onChange={e => setNewPost({...newPost, content: e.target.value})} required></textarea>
-                                                    <button className="w-full bg-indigo-600 text-white font-bold py-3 rounded-xl hover:bg-indigo-700 transition-all shadow-md">Publish to Cloud</button>
+                                                    <button className="w-full bg-indigo-600 text-white font-bold py-3 rounded-xl hover:bg-indigo-700 transition-all shadow-md">Publish to Firestore</button>
                                                 </form>
                                             </div>
                                         </div>
                                         <div className="lg:col-span-2">
                                             <div className="bg-white rounded-2xl border border-slate-200 overflow-hidden shadow-sm">
                                                 <div className="p-4 border-b font-bold bg-slate-50 flex items-center justify-between">
-                                                    <span>Manage Cloud Posts</span>
-                                                    <span className="text-xs bg-slate-200 text-slate-600 px-2 py-1 rounded-full">{blogs.length} Active</span>
+                                                    <span>Live Firestore Database</span>
+                                                    <span className="text-xs bg-indigo-100 text-indigo-600 px-2 py-1 rounded-full">{blogs.length} Posts</span>
                                                 </div>
                                                 <div className="divide-y divide-slate-100">
                                                     {blogs.map(b => (
