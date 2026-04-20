@@ -23,13 +23,26 @@
         .line-clamp-3 { display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
         .fade-in { animation: fadeIn 0.3s ease-in-out; }
         @keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
+        
+        /* Rich Text Table Styling */
+        .rich-content table { width: 100%; border-collapse: collapse; margin: 1rem 0; font-size: 0.875rem; }
+        .rich-content table border, .rich-content td, .rich-content th { border: 1px solid #e2e8f0; padding: 8px; }
+        .rich-content th { background-color: #f8fafc; font-weight: 700; }
+        .rich-content blockquote { border-left: 4px solid #6366f1; padding-left: 1rem; color: #475569; font-style: italic; }
+        
+        /* Editor Placeholder */
+        .editor-placeholder:empty:before {
+            content: attr(data-placeholder);
+            color: #94a3b8;
+            cursor: text;
+        }
     </style>
 </head>
 <body class="bg-slate-50">
     <div id="root"></div>
 
     <script type="text/babel">
-        const { useState, useMemo, useEffect } = React;
+        const { useState, useMemo, useEffect, useRef } = React;
 
         const MANUAL_CONFIG = {
             apiKey: "AIzaSyCtySdj26DJT5Tb1Bv7LChYVnfU5hFe3Yg",
@@ -86,12 +99,14 @@
             const [loginPass, setLoginPass] = useState('');
             const [error, setError] = useState('');
             
+            const editorRef = useRef(null);
+
             // Post management state
             const [newPost, setNewPost] = useState({ 
                 subject: '', 
                 topic: '', 
-                content: '',
-                tableData: [] // Array of { key: '', value: '' }
+                content: '', // Stores HTML string
+                tableData: [] 
             });
             const [editingId, setEditingId] = useState(null);
 
@@ -109,7 +124,7 @@
                             await auth.signInAnonymously();
                         }
                     } catch (err) {
-                        setLoadError("Authentication failed. Check your Firebase console settings.");
+                        setLoadError("Authentication failed.");
                         setIsLoading(false);
                     }
                 };
@@ -152,24 +167,8 @@
                 }
             };
 
-            const handleAddTableRow = () => {
-                setNewPost(prev => ({
-                    ...prev,
-                    tableData: [...(prev.tableData || []), { key: '', value: '' }]
-                }));
-            };
-
-            const handleRemoveTableRow = (index) => {
-                setNewPost(prev => ({
-                    ...prev,
-                    tableData: prev.tableData.filter((_, i) => i !== index)
-                }));
-            };
-
-            const handleUpdateTableRow = (index, field, val) => {
-                const updated = [...newPost.tableData];
-                updated[index][field] = val;
-                setNewPost(prev => ({ ...prev, tableData: updated }));
+            const handleEditorInput = (e) => {
+                setNewPost(prev => ({ ...prev, content: e.target.innerHTML }));
             };
 
             const handleSavePost = async (e) => {
@@ -196,6 +195,7 @@
                         });
                     }
                     setNewPost({ subject: '', topic: '', content: '', tableData: [] });
+                    if(editorRef.current) editorRef.current.innerHTML = "";
                 } catch (err) {
                     alert("Failed to save: " + err.message);
                 }
@@ -209,11 +209,13 @@
                     content: blog.content,
                     tableData: blog.tableData || []
                 });
+                if(editorRef.current) editorRef.current.innerHTML = blog.content;
             };
 
             const handleCancelEdit = () => {
                 setEditingId(null);
                 setNewPost({ subject: '', topic: '', content: '', tableData: [] });
+                if(editorRef.current) editorRef.current.innerHTML = "";
             };
 
             const handleDeletePost = async (id) => {
@@ -228,17 +230,11 @@
                 }
             };
 
-            if (!isFirebaseReady && !isLoading) {
-                return (
-                    <div className="min-h-screen flex items-center justify-center bg-slate-50 p-4 text-center">
-                        <div className="bg-white p-8 rounded-2xl shadow-xl max-w-md">
-                            <Icon name="alert-triangle" size={48} className="text-amber-500 mb-4" />
-                            <h1 className="text-xl font-bold mb-2">Setup Required</h1>
-                            <p className="text-slate-600">Please provide Firebase configuration in the source code.</p>
-                        </div>
-                    </div>
-                );
-            }
+            // Utility to strip HTML for the "Read More" card preview
+            const stripHtml = (html) => {
+                const doc = new DOMParser().parseFromString(html, 'text/html');
+                return doc.body.textContent || "";
+            };
 
             return (
                 <div className="min-h-screen pb-20">
@@ -295,7 +291,7 @@
                                                     <div className="p-6 flex-grow">
                                                         <span className="inline-block px-3 py-1 bg-indigo-50 text-indigo-700 text-xs font-bold rounded mb-4 uppercase tracking-wider">{blog.subject}</span>
                                                         <h3 className="text-xl font-bold text-slate-800 mb-3 line-clamp-2">{blog.topic}</h3>
-                                                        <p className="text-slate-600 text-sm leading-relaxed line-clamp-3">{blog.content}</p>
+                                                        <p className="text-slate-600 text-sm leading-relaxed line-clamp-3">{stripHtml(blog.content)}</p>
                                                     </div>
                                                     <div className="px-6 py-4 bg-slate-50 border-t border-slate-100 flex items-center justify-between">
                                                         <span className="text-xs text-slate-400 flex items-center gap-1"><Icon name="calendar" size={14} /> {blog.date}</span>
@@ -317,9 +313,12 @@
                                         <article className="bg-white rounded-3xl border border-slate-200 p-8 md:p-12 shadow-sm">
                                             <span className="text-indigo-600 font-bold uppercase tracking-widest text-xs mb-4 block">{selectedBlog.subject}</span>
                                             <h1 className="text-3xl md:text-5xl font-black text-slate-900 mb-6 leading-tight">{selectedBlog.topic}</h1>
-                                            <div className="prose prose-slate max-w-none whitespace-pre-wrap text-slate-700 text-lg leading-relaxed mb-8">
-                                                {selectedBlog.content}
-                                            </div>
+                                            
+                                            {/* Rendered HTML content */}
+                                            <div 
+                                                className="prose prose-slate max-w-none rich-content text-slate-700 text-lg leading-relaxed mb-8"
+                                                dangerouslySetInnerHTML={{ __html: selectedBlog.content }}
+                                            />
 
                                             {selectedBlog.tableData && selectedBlog.tableData.length > 0 && (
                                                 <div className="mt-8 border rounded-xl overflow-hidden">
@@ -371,25 +370,19 @@
                                                 <form onSubmit={handleSavePost} className="space-y-4">
                                                     <input type="text" placeholder="Subject" className="w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-indigo-500 outline-none" value={newPost.subject} onChange={e => setNewPost({...newPost, subject: e.target.value})} required />
                                                     <input type="text" placeholder="Topic" className="w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-indigo-500 outline-none" value={newPost.topic} onChange={e => setNewPost({...newPost, topic: e.target.value})} required />
-                                                    <textarea placeholder="Content..." className="w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-indigo-500 outline-none" rows="6" value={newPost.content} onChange={e => setNewPost({...newPost, content: e.target.value})} required></textarea>
                                                     
-                                                    <div className="border-t pt-4">
-                                                        <div className="flex items-center justify-between mb-2">
-                                                            <span className="text-sm font-bold text-slate-500">Supporting Table</span>
-                                                            <button type="button" onClick={handleAddTableRow} className="text-xs bg-indigo-600 text-white px-2 py-1 rounded-md hover:bg-indigo-700">Add Row</button>
-                                                        </div>
-                                                        <div className="space-y-2 max-h-48 overflow-y-auto pr-1">
-                                                            {newPost.tableData?.map((row, i) => (
-                                                                <div key={i} className="flex gap-2 items-start">
-                                                                    <input placeholder="Key" className="flex-1 px-2 py-1 text-xs border rounded" value={row.key} onChange={e => handleUpdateTableRow(i, 'key', e.target.value)} />
-                                                                    <input placeholder="Value" className="flex-1 px-2 py-1 text-xs border rounded" value={row.value} onChange={e => handleUpdateTableRow(i, 'value', e.target.value)} />
-                                                                    <button type="button" onClick={() => handleRemoveTableRow(i)} className="text-red-400 hover:text-red-600"><Icon name="x" size={16} /></button>
-                                                                </div>
-                                                            ))}
-                                                        </div>
+                                                    <div className="space-y-1">
+                                                        <label className="text-xs font-bold text-slate-400 uppercase tracking-wide">Content (Supports pasting formatting/tables)</label>
+                                                        <div 
+                                                            ref={editorRef}
+                                                            contentEditable
+                                                            data-placeholder="Paste or type content here..."
+                                                            className="editor-placeholder w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-indigo-500 outline-none min-h-[200px] max-h-[400px] overflow-y-auto rich-content bg-white"
+                                                            onInput={handleEditorInput}
+                                                        ></div>
                                                     </div>
 
-                                                    <div className="flex gap-2">
+                                                    <div className="flex gap-2 pt-2">
                                                         <button type="submit" className="flex-grow bg-indigo-600 text-white font-bold py-3 rounded-xl hover:bg-indigo-700 transition-all shadow-md">
                                                             {editingId ? "Update" : "Publish"}
                                                         </button>
