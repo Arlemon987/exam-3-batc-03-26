@@ -1,0 +1,223 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Asiqur's Blog | Admin Portal</title>
+    <!-- React and Babel for JSX transformation -->
+    <script src="https://unpkg.com/react@18/umd/react.development.js"></script>
+    <script src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Lucide Icons -->
+    <script src="https://unpkg.com/lucide@latest"></script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap');
+        body { font-family: 'Inter', sans-serif; }
+        .line-clamp-2 { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+        .line-clamp-3 { display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
+    </style>
+</head>
+<body class="bg-slate-50">
+    <div id="root"></div>
+
+    <script type="text/babel">
+        const { useState, useMemo, useEffect } = React;
+
+        // Icons using simple SVG paths since we are in a single HTML file
+        const Icon = ({ name, size = 20, className = "" }) => {
+            useEffect(() => {
+                lucide.createIcons();
+            }, [name]);
+            return <i data-lucide={name} style={{ width: size, height: size }} className={className}></i>;
+        };
+
+        const INITIAL_BLOGS = [
+            {
+                id: 1,
+                subject: "Artificial Intelligence",
+                topic: "The Future of Web3 and AI",
+                content: "DGrid AI is pioneering decentralized AI infrastructure project that bridges the gaps between Web3 and artificial intelligence. By building decentralized infrastructure that frees AI operations from dependency on large platforms, it aims to transform AI into a foundational public utility. The system operates as a three-tier architecture including a Decentralized Routing & Verification Network and an AI DAO Governance System.",
+                author: "Admin789",
+                date: new Date().toLocaleDateString()
+            },
+            {
+                id: 2,
+                subject: "Web Development",
+                topic: "Getting Started with Tailwind CSS",
+                content: "Tailwind CSS is a utility-first CSS framework for rapidly building custom user interfaces. It works by scanning all of your HTML files, JavaScript components, and any other templates for class names, generating the corresponding styles and then writing them to a static CSS file.",
+                author: "Admin789",
+                date: new Date().toLocaleDateString()
+            }
+        ];
+
+        const ADMIN_ID = "Admin789";
+        const ADMIN_PASS = "Admin987#";
+
+        function App() {
+            const [view, setView] = useState('home');
+            const [blogs, setBlogs] = useState(() => {
+                const saved = localStorage.getItem('dgrid_blogs');
+                return saved ? JSON.parse(saved) : INITIAL_BLOGS;
+            });
+            const [selectedBlog, setSelectedBlog] = useState(null);
+            const [selectedSubject, setSelectedSubject] = useState('All');
+            const [isAdmin, setIsAdmin] = useState(false);
+            
+            const [loginId, setLoginId] = useState('');
+            const [loginPass, setLoginPass] = useState('');
+            const [error, setError] = useState('');
+            const [newPost, setNewPost] = useState({ subject: '', topic: '', content: '' });
+
+            useEffect(() => {
+                localStorage.setItem('dgrid_blogs', JSON.stringify(blogs));
+            }, [blogs]);
+
+            const subjects = useMemo(() => ['All', ...new Set(blogs.map(b => b.subject))], [blogs]);
+            const filteredBlogs = useMemo(() => selectedSubject === 'All' ? blogs : blogs.filter(b => b.subject === selectedSubject), [blogs, selectedSubject]);
+
+            const handleLogin = (e) => {
+                e.preventDefault();
+                if (loginId === ADMIN_ID && loginPass === ADMIN_PASS) {
+                    setIsAdmin(true);
+                    setView('admin');
+                    setError('');
+                } else {
+                    setError('Invalid ID or Password');
+                }
+            };
+
+            const handleCreatePost = (e) => {
+                e.preventDefault();
+                const post = { ...newPost, id: Date.now(), author: ADMIN_ID, date: new Date().toLocaleDateString() };
+                setBlogs([post, ...blogs]);
+                setNewPost({ subject: '', topic: '', content: '' });
+                setView('admin');
+            };
+
+            return (
+                <div className="min-h-screen pb-20">
+                    <nav className="bg-white border-b border-slate-200 sticky top-0 z-50">
+                        <div className="max-w-6xl mx-auto px-4 h-16 flex items-center justify-between">
+                            <div className="flex items-center gap-2 cursor-pointer" onClick={() => setView('home')}>
+                                <div className="bg-indigo-600 p-2 rounded-lg text-white flex items-center justify-center">
+                                    <Icon name="book-open" size={20} />
+                                </div>
+                                <span className="text-xl font-bold text-slate-800 tracking-tight">DGrid<span className="text-indigo-600">Blog</span></span>
+                            </div>
+                            <div className="flex items-center gap-4">
+                                {isAdmin ? (
+                                    <button onClick={() => setIsAdmin(false)} className="text-sm font-medium text-red-600 hover:bg-red-50 px-3 py-2 rounded-md flex items-center gap-1">
+                                        <Icon name="log-out" size={16} /> Logout
+                                    </button>
+                                ) : (
+                                    <button onClick={() => setView('login')} className="text-sm font-medium text-slate-600 hover:text-indigo-600 flex items-center gap-1">
+                                        <Icon name="shield-check" size={16} /> Admin
+                                    </button>
+                                )}
+                            </div>
+                        </div>
+                    </nav>
+
+                    <main className="max-w-6xl mx-auto px-4 py-8">
+                        {view === 'home' && (
+                            <div className="space-y-8">
+                                <header className="text-center max-w-2xl mx-auto space-y-4">
+                                    <h1 className="text-4xl font-extrabold text-slate-900 tracking-tight">EXAM-03 Preps</h1>
+                                    <p className="text-slate-500">Let-Set-GO</p>
+                                </header>
+                                <div className="flex flex-wrap gap-2 justify-center">
+                                    {subjects.map(sub => (
+                                        <button key={sub} onClick={() => setSelectedSubject(sub)} className={`px-4 py-2 rounded-full text-sm font-medium transition-all ${selectedSubject === sub ? 'bg-indigo-600 text-white' : 'bg-white text-slate-600 border border-slate-200 hover:bg-slate-50'}`}>
+                                            {sub}
+                                        </button>
+                                    ))}
+                                </div>
+                                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                                    {filteredBlogs.map(blog => (
+                                        <div key={blog.id} className="bg-white rounded-2xl border border-slate-200 overflow-hidden hover:shadow-lg transition-shadow flex flex-col">
+                                            <div className="p-6 flex-grow">
+                                                <span className="inline-block px-3 py-1 bg-indigo-50 text-indigo-700 text-xs font-bold rounded mb-4 uppercase">{blog.subject}</span>
+                                                <h3 className="text-xl font-bold text-slate-800 mb-3 line-clamp-2">{blog.topic}</h3>
+                                                <p className="text-slate-600 text-sm leading-relaxed line-clamp-3">{blog.content}</p>
+                                            </div>
+                                            <div className="px-6 py-4 bg-slate-50 border-t border-slate-100 flex items-center justify-between">
+                                                <span className="text-xs text-slate-400 flex items-center gap-1"><Icon name="clock" size={14} /> {blog.date}</span>
+                                                <button onClick={() => { setSelectedBlog(blog); setView('read'); }} className="text-indigo-600 text-sm font-bold flex items-center gap-1 hover:underline">Read More <Icon name="chevron-right" size={16} /></button>
+                                            </div>
+                                        </div>
+                                    ))}
+                                </div>
+                            </div>
+                        )}
+
+                        {view === 'read' && selectedBlog && (
+                            <div className="max-w-3xl mx-auto">
+                                <button onClick={() => setView('home')} className="flex items-center gap-2 text-slate-500 hover:text-indigo-600 mb-8 font-medium">
+                                    <Icon name="arrow-left" size={18} /> Back
+                                </button>
+                                <article className="bg-white rounded-3xl border border-slate-200 p-8 md:p-12">
+                                    <span className="text-indigo-600 font-bold uppercase text-xs mb-4 block">{selectedBlog.subject}</span>
+                                    <h1 className="text-3xl md:text-5xl font-black text-slate-900 mb-6 leading-tight">{selectedBlog.topic}</h1>
+                                    <div className="prose prose-slate max-w-none">
+                                        {selectedBlog.content.split('\n').map((p, i) => <p key={i} className="text-slate-700 text-lg leading-relaxed mb-6">{p}</p>)}
+                                    </div>
+                                </article>
+                            </div>
+                        )}
+
+                        {view === 'login' && (
+                            <div className="max-w-md mx-auto mt-12">
+                                <div className="bg-white rounded-3xl border border-slate-200 p-8 shadow-xl text-center">
+                                    <h2 className="text-2xl font-bold mb-6">Admin Login</h2>
+                                    <form onSubmit={handleLogin} className="space-y-4 text-left">
+                                        <input type="text" placeholder="Admin ID" className="w-full px-4 py-3 rounded-xl border" onChange={e => setLoginId(e.target.value)} />
+                                        <input type="password" placeholder="Password" className="w-full px-4 py-3 rounded-xl border" onChange={e => setLoginPass(e.target.value)} />
+                                        {error && <p className="text-red-500 text-sm">{error}</p>}
+                                        <button className="w-full bg-slate-900 text-white font-bold py-3 rounded-xl">Login</button>
+                                    </form>
+                                    <button onClick={() => setView('home')} className="mt-4 text-slate-400 text-sm hover:underline">Cancel</button>
+                                </div>
+                            </div>
+                        )}
+
+                        {view === 'admin' && isAdmin && (
+                            <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+                                <div className="lg:col-span-1">
+                                    <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm">
+                                        <h3 className="text-lg font-bold mb-4">Create Post</h3>
+                                        <form onSubmit={handleCreatePost} className="space-y-4">
+                                            <input type="text" placeholder="Subject" className="w-full px-4 py-2 border rounded-lg" value={newPost.subject} onChange={e => setNewPost({...newPost, subject: e.target.value})} required />
+                                            <input type="text" placeholder="Topic" className="w-full px-4 py-2 border rounded-lg" value={newPost.topic} onChange={e => setNewPost({...newPost, topic: e.target.value})} required />
+                                            <textarea placeholder="Content" className="w-full px-4 py-2 border rounded-lg" rows="6" value={newPost.content} onChange={e => setNewPost({...newPost, content: e.target.value})} required></textarea>
+                                            <button className="w-full bg-indigo-600 text-white font-bold py-3 rounded-xl">Publish</button>
+                                        </form>
+                                    </div>
+                                </div>
+                                <div className="lg:col-span-2 bg-white rounded-2xl border border-slate-200 overflow-hidden">
+                                    <div className="p-4 border-b font-bold bg-slate-50">Post Management</div>
+                                    <div className="divide-y">
+                                        {blogs.map(b => (
+                                            <div key={b.id} className="p-4 flex items-center justify-between">
+                                                <div>
+                                                    <p className="text-xs font-bold text-indigo-600">{b.subject}</p>
+                                                    <p className="font-medium">{b.topic}</p>
+                                                </div>
+                                                <button onClick={() => setBlogs(blogs.filter(x => x.id !== b.id))} className="text-red-400 hover:text-red-600 p-2"><Icon name="trash-2" size={18} /></button>
+                                            </div>
+                                        ))}
+                                    </div>
+                                </div>
+                            </div>
+                        )}
+                    </main>
+                </div>
+            );
+        }
+
+        const root = ReactDOM.createRoot(document.getElementById('root'));
+        root.render(<App />);
+    </script>
+</body>
+</html>
